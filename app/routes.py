@@ -35,40 +35,11 @@ def add_terrain():
     }), 201
 
 # Nouvelle route pour visualiser les terrains en 3D
-@api_routes.route('/visualiser_3d', methods=['GET'])
-def visualiser_3d():
-    # Récupérer tous les terrains depuis la base de données
-    terrains = Terrain.query.all()
-
-    # Extraire les coordonnées et altitudes
-    latitudes = [terrain.latitude for terrain in terrains]
-    longitudes = [terrain.longitude for terrain in terrains]
-    altitudes = [terrain.altitude for terrain in terrains]
-
-    # Créer une trace 3D pour afficher les terrains
-    trace = go.Scatter3d(
-        x=longitudes,
-        y=latitudes,
-        z=altitudes,
-        mode='markers',
-        marker=dict(size=5, color=altitudes, colorscale='Viridis', opacity=0.8)
-    )
-
-    # Définir la mise en page de la visualisation 3D
-    layout = go.Layout(
-        title='3D Terrain Visualization',
-        scene=dict(
-            xaxis_title='Longitude',
-            yaxis_title='Latitude',
-            zaxis_title='Altitude'
-        )
-    )
-
-    # Créer la figure Plotly avec la trace et la mise en page
-    fig = go.Figure(data=[trace], layout=layout)
-
-    # Convertir la figure en HTML pour l'affichage dans le template
-    graph_html = fig.to_html(full_html=False)
-
-    # Retourner le template avec le graphique intégré
-    return render_template('visualiser_3d.html', graph_html=graph_html)
+@api_routes.route('/visualiser_3d/<int:id>', methods=['GET'])
+def visualiser_3d(id):
+    terrain = Terrain.query.get(id)
+    if terrain:
+        # Passer les données du terrain à la template pour affichage
+        return render_template('visualiser_3d.html', terrain=terrain)
+    else:
+        return jsonify({"error": "Terrain not found"}), 404

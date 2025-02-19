@@ -3,13 +3,43 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D Terrain Visualization</title>
+    <title>Visualisation 3D du Terrain</title>
+    <!-- Inclure Plotly.js ou Cesium.js ici -->
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
 </head>
 <body>
-    <h1>3D Terrain Visualization</h1>
-    <!-- Afficher le graphique Plotly -->
-    <div>
-        {{ graph_html|safe }}
-    </div>
+    <h1>Visualisation 3D du Terrain</h1>
+
+    <!-- Zone de la carte 3D -->
+    <div id="terrain_3d" style="height: 600px;"></div>
+
+    <script>
+        // Données du terrain
+        var latitude = {{ terrain.latitude }};
+        var longitude = {{ terrain.longitude }};
+        var altitude = {{ terrain.altitude }};
+
+        // Créer la visualisation 3D avec Plotly (exemple)
+        var data = [{
+            type: 'scattergeo',
+            mode: 'markers',
+            locations: [0],
+            lon: [longitude],
+            lat: [latitude],
+            text: ['Altitude: ' + altitude + 'm'],
+            marker: { size: 10 }
+        }];
+
+        var layout = {
+            geo: {
+                projection: { type: 'mercator' },
+                scope: 'world'
+            },
+            title: 'Terrain 3D'
+        };
+
+        Plotly.newPlot('terrain_3d', data, layout);
+    </script>
 </body>
 </html>
+
