@@ -17,6 +17,7 @@ def create_app():
     # Enregistrer les routes
     with app.app_context():
         from . import routes  # Importation des routes
+        app.register_blueprint(routes.api_routes)  # 🔥 Correction ici
         db.create_all()  # Création automatique des tables
 
     return app
