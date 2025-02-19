@@ -1,3 +1,15 @@
+# Virtual environment
 venv/
+
+# IDE configurations
+.vscode/
+
+# Python compiled files
 __pycache__/
 *.pyc
+
+# Log files
+*.log
+
+# Temporary files
+*.swp
