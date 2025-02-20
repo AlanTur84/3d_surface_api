@@ -1,9 +1,11 @@
+# app/routes.py
 from flask import Blueprint, jsonify, request, render_template
 from app.services.elevation_service import get_elevations
 import pandas as pd
 import io
 import logging
 import traceback
+import chardet  # Add this new import
 
 api_routes = Blueprint('api', __name__, url_prefix='/api')
 
@@ -21,7 +23,16 @@ def handle_dataset():
             return jsonify({"error": "Only CSV files allowed"}), 400
 
         try:
-            df = pd.read_csv(io.StringIO(file.stream.read().decode('utf-8')))
+            # Detect file encoding
+            raw_data = file.stream.read()
+            result = chardet.detect(raw_data)
+            encoding = result['encoding'] or 'utf-8'
+            
+            # Reset stream and read with detected encoding
+            file.stream.seek(0)
+            content = raw_data.decode(encoding, errors='replace')
+            
+            df = pd.read_csv(io.StringIO(content))
             
             if not {'lat', 'lon'}.issubset(df.columns):
                 return jsonify({"error": "CSV must contain 'lat' and 'lon' columns"}), 400
@@ -45,13 +56,17 @@ def handle_dataset():
                 "type": "FeatureCollection",
                 "metadata": {
                     "total_points": len(coordinates),
-                    "successful_points": len(features)
+                    "successful_points": len(features),
+                    "encoding_used": encoding  # Return detected encoding
                 },
                 "features": features
             })
             
         except pd.errors.ParserError:
             return jsonify({"error": "Invalid CSV format"}), 400
+        except UnicodeDecodeError as ude:
+            logging.error(f"Encoding error: {str(ude)}")
+            return jsonify({"error": "Invalid file encoding. Try saving as UTF-8"}), 400
             
     except Exception as e:
         logging.error(f"Error: {traceback.format_exc()}")
