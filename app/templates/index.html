@@ -1,9 +1,8 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>3D Terrain Visualizer</title>
+    <title>Elevation Visualizer</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/delaunator@5.0.0/delaunator.min.js"></script>
     <style>
         body { margin: 0; }
         canvas { display: block; }
@@ -15,6 +14,7 @@
             padding: 15px;
             border-radius: 5px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            z-index: 1;
         }
     </style>
 </head>
@@ -22,17 +22,23 @@
     <div id="ui">
         <input type="file" id="dataset" accept=".csv">
         <button onclick="loadDataset()">Load CSV</button>
-        <div id="status"></div>
+        <div id="status">Status: Ready</div>
     </div>
 
     <script>
-        let scene, camera, renderer, controls;
+        let scene, camera, renderer, terrain;
+        const ELEVATION_SCALE = 0.1; // Vertical exaggeration
 
-        // Initialize Three.js scene
         function initThree() {
+            // Scene setup
             scene = new THREE.Scene();
-            camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+            scene.background = new THREE.Color(0x87CEEB);
             
+            // Camera setup
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 10000);
+            camera.position.set(0, 500, 500);
+            
+            // Renderer setup
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
             document.body.appendChild(renderer.domElement);
@@ -42,13 +48,8 @@
             scene.add(ambientLight);
             
             const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-            directionalLight.position.set(1, 1, 1);
+            directionalLight.position.set(100, 100, 100);
             scene.add(directionalLight);
-
-            // Camera position
-            camera.position.z = 50;
-            camera.position.y = 50;
-            camera.lookAt(0, 0, 0);
 
             // Animation loop
             function animate() {
@@ -58,71 +59,82 @@
             animate();
         }
 
-        // Create terrain from data
-        function createTerrain(features) {
-            // Clear existing terrain
-            scene.traverse(child => {
-                if (child instanceof THREE.Mesh) {
-                    scene.remove(child);
-                }
-            });
+        function createElevationModel(elevations) {
+            // Remove existing terrain
+            if(terrain) scene.remove(terrain);
 
-            // Convert features to vertices
-            const vertices = features.map(f => {
-                const [lon, lat, elev] = f.geometry.coordinates;
-                return new THREE.Vector3(
-                    lon / 10,  // X axis (longitude)
-                    lat / 10,  // Y axis (latitude)
-                    elev / 100 // Z axis (elevation)
-                );
-            });
-
-            // Create geometry
-            const geometry = new THREE.BufferGeometry().setFromPoints(vertices);
+            // Create geometry grid
+            const width = Math.sqrt(elevations.length); // Assume square grid
+            const geometry = new THREE.PlaneGeometry(width, width, width-1, width-1);
             
-            // Generate triangles
-            const delaunay = Delaunator.from(vertices.map(v => [v.x, v.y]));
-            geometry.setIndex(delaunay.triangles);
+            // Apply elevations to vertices
+            const vertices = geometry.attributes.position.array;
+            for(let i = 0; i < elevations.length; i++) {
+                vertices[i * 3 + 2] = elevations[i] * ELEVATION_SCALE;
+            }
+            
             geometry.computeVertexNormals();
 
             // Create material
             const material = new THREE.MeshPhongMaterial({
-                color: 0x00ff00,
+                vertexColors: true,
                 wireframe: false,
-                flatShading: true
+                side: THREE.DoubleSide
             });
 
-            // Create mesh
-            const terrain = new THREE.Mesh(geometry, material);
+            // Create color gradient based on elevation
+            const colors = [];
+            const maxElevation = Math.max(...elevations);
+            for(let elev of elevations) {
+                const color = new THREE.Color().setHSL(
+                    0.6 * (1 - elev/maxElevation), // Blue to white
+                    0.8,
+                    0.5
+                );
+                colors.push(color.r, color.g, color.b);
+            }
+            geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+
+            terrain = new THREE.Mesh(geometry, material);
             scene.add(terrain);
 
-            // Adjust camera
-            const box = new THREE.Box3().setFromObject(terrain);
-            const size = box.getSize(new THREE.Vector3()).length();
-            camera.position.z = size * 2;
+            // Position camera
+            camera.position.set(width/2, maxElevation * ELEVATION_SCALE * 2, width/2);
+            camera.lookAt(width/2, 0, width/2);
         }
 
-        // Handle dataset loading
         async function loadDataset() {
             const file = document.getElementById('dataset').files[0];
             if (!file) return;
 
-            const formData = new FormData();
-            formData.append('dataset', file);
-
+            const status = document.getElementById('status');
+            status.textContent = "Processing...";
+            
             try {
-                const response = await fetch('/api/dataset', { method: 'POST', body: formData });
-                const data = await response.json();
+                const formData = new FormData();
+                formData.append('dataset', file);
                 
-                if (!scene) initThree();
-                createTerrain(data.features);
+                const response = await fetch('/api/dataset', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || 'Upload failed');
+                
+                // Extract just elevations
+                const elevations = data.features.map(f => f.properties.elevation);
+                createElevationModel(elevations);
+                
+                status.textContent = `Loaded ${elevations.length} elevation points`;
                 
             } catch (error) {
-                document.getElementById('status').textContent = `Error: ${error.message}`;
+                status.textContent = `Error: ${error.message}`;
+                status.style.color = 'red';
             }
         }
 
-        // Initialize on first load
+        // Initialize on load
         initThree();
     </script>
 </body>
