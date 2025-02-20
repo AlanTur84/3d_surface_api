@@ -1,5 +1,8 @@
 from flask import Blueprint, jsonify, request, render_template
-from app.services.elevation_service import get_elevation
+from app.services.elevation_service import get_elevations
+from flask import Blueprint, jsonify, request, render_template
+from app.services.elevation_service import get_elevation, get_elevations
+import pandas as pd
 
 api_routes = Blueprint('api', __name__, url_prefix='/api')
 
@@ -15,8 +18,7 @@ def generate_3d_model():
     if elevation is None:
         return jsonify({"error": "Failed to fetch elevation"}), 500
 
-    # Generate basic 3D model data
-    model_data = {
+    return jsonify({
         "type": "Feature",
         "geometry": {
             "type": "Point",
@@ -25,9 +27,44 @@ def generate_3d_model():
         "properties": {
             "elevation": elevation
         }
-    }
-    
-    return jsonify(model_data)
+    })
+
+@api_routes.route('/dataset', methods=['POST'])
+def process_dataset():
+    if 'file' not in request.files:
+        return jsonify({"error": "No file uploaded"}), 400
+        
+    try:
+        file = request.files['file']
+        df = pd.read_csv(file)
+        
+        if 'lat' not in df.columns or 'lon' not in df.columns:
+            return jsonify({"error": "CSV must contain 'lat' and 'lon' columns"}), 400
+
+        coordinates = list(zip(df['lat'], df['lon']))
+        elevations = get_elevations(coordinates)
+        
+        if None in elevations:
+            return jsonify({"error": "Failed to fetch some elevation data"}), 500
+
+        return jsonify({
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "geometry": {
+                        "type": "Point",
+                        "coordinates": [lon, lat, elev]
+                    },
+                    "properties": {
+                        "elevation": elev
+                    }
+                }
+                for (lat, lon), elev in zip(coordinates, elevations)
+            ]
+        })
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @api_routes.route('/')
 def home():
