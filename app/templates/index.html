@@ -1,132 +1,92 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>3D Terrain Visualizer</title>
+    <title>3D Terrain Generator</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/delaunator@5.0.0/delaunator.min.js"></script>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 20px;
-        }
-        .input-section {
-            background: #f5f5f5;
-            padding: 20px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-        }
-        .input-group {
-            margin: 15px 0;
-        }
-        input[type="file"] {
-            margin: 10px 0;
-        }
-        button {
-            background: #4CAF50;
-            color: white;
-            padding: 10px 20px;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-        }
-        button:hover {
-            background: #45a049;
-        }
-        #model-container {
-            width: 100%;
-            height: 600px;
-            border: 2px solid #ddd;
-            border-radius: 4px;
-            margin-top: 20px;
-        }
-        .instructions {
-            background: #fff3d4;
+        body { margin: 0; font-family: Arial, sans-serif; }
+        #controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(255,255,255,0.9);
             padding: 15px;
-            border-radius: 4px;
-            margin: 15px 0;
+            border-radius: 5px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }
+        input, button { margin: 5px; padding: 8px; }
+        #status { color: #666; margin-top: 10px; }
     </style>
 </head>
 <body>
-    <div class="input-section">
-        <h1>3D Terrain Visualization Tool</h1>
+    <div id="controls">
+        <h2>3D Terrain Generator</h2>
         
-        <div class="input-group">
-            <h2>Single Coordinate Visualization</h2>
-            <form onsubmit="generateModel(event)">
-                <input type="number" step="any" id="lat" placeholder="Latitude" required>
-                <input type="number" step="any" id="lon" placeholder="Longitude" required>
-                <button type="submit">Visualize Point</button>
-            </form>
+        <div>
+            <h3>Single Point</h3>
+            <input type="number" step="any" id="lat" placeholder="Latitude">
+            <input type="number" step="any" id="lon" placeholder="Longitude">
+            <button onclick="addSinglePoint()">Add Point</button>
         </div>
 
-        <div class="input-group">
-            <h2>Dataset Visualization</h2>
-            <div class="instructions">
-                <strong>CSV Format Requirements:</strong>
-                <ul>
-                    <li>File must be in CSV format</li>
-                    <li>Required columns: <code>lat</code>, <code>lon</code></li>
-                    <li>Maximum 1000 points per file</li>
-                </ul>
-            </div>
-            
+        <div>
+            <h3>Dataset Upload</h3>
             <input type="file" id="dataset" accept=".csv">
-            <button onclick="processDataset()">Upload and Visualize Dataset</button>
-            
-            <div id="upload-status" style="margin-top: 10px;"></div>
+            <button onclick="uploadDataset()">Upload CSV</button>
+            <p id="status">Ready</p>
         </div>
     </div>
 
-    <div id="model-container"></div>
-
     <script src="{{ url_for('static', filename='js/three_app.js') }}"></script>
     <script>
-        function updateStatus(message, isError = false) {
-            const statusDiv = document.getElementById('upload-status');
-            statusDiv.style.color = isError ? 'red' : 'green';
-            statusDiv.textContent = message;
+        async function addSinglePoint() {
+            const lat = parseFloat(document.getElementById('lat').value);
+            const lon = parseFloat(document.getElementById('lon').value);
+            
+            try {
+                const response = await fetch(`/api/generate_model?lat=${lat}&lon=${lon}`);
+                const data = await response.json();
+                addDataPoint(data.geometry.coordinates);
+                updateStatus('Point added successfully');
+            } catch (error) {
+                updateStatus(`Error: ${error.message}`, true);
+            }
         }
 
-        async function processDataset() {
-            const fileInput = document.getElementById('dataset');
-            if (!fileInput.files.length) {
-                updateStatus('Please select a file first!', true);
+        async function uploadDataset() {
+            const file = document.getElementById('dataset').files[0];
+            if (!file) {
+                updateStatus('No file selected', true);
                 return;
             }
 
-            const file = fileInput.files[0];
-            updateStatus('Processing dataset...');
-
+            updateStatus('Uploading...');
+            
             try {
                 const formData = new FormData();
-                formData.append('file', file);
-
+                formData.append('dataset', file);
+                
                 const response = await fetch('/api/dataset', {
                     method: 'POST',
                     body: formData
                 });
-
-                if (!response.ok) {
-                    const error = await response.json();
-                    throw new Error(error.error || 'Upload failed');
-                }
-
+                
                 const data = await response.json();
-                updateStatus(`Successfully processed ${data.features.length} points!`);
+                if (!response.ok) throw new Error(data.error || 'Upload failed');
                 
-                if(!scene) initThree();
-                if(terrainMesh) scene.remove(terrainMesh);
+                updateStatus(`Uploaded ${data.metadata.successful_points} points`);
+                visualizeDataset(data.features);
                 
-                terrainMesh = createTerrainMesh(data.features);
-                scene.add(terrainMesh);
-                fitCameraToObject(terrainMesh);
-                renderer.render(scene, camera);
-
             } catch (error) {
-                console.error('Error:', error);
                 updateStatus(`Error: ${error.message}`, true);
             }
+        }
+
+        function updateStatus(message, isError = false) {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.style.color = isError ? 'red' : 'green';
         }
     </script>
 </body>

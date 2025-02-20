@@ -1,22 +1,18 @@
-from flask import Flask, jsonify
+from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
-from .config import Config
+from config import Config
 
 db = SQLAlchemy()
 
 def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
+    
+    # Configure upload settings
+    app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024  # 2MB limit
+    app.config['ALLOWED_EXTENSIONS'] = {'csv'}
+    
     db.init_app(app)
-
-    # Error handlers
-    @app.errorhandler(400)
-    def bad_request(error):
-        return jsonify({"error": "Bad request"}), 400
-
-    @app.errorhandler(500)
-    def internal_error(error):
-        return jsonify({"error": "Elevation service unavailable"}), 500
 
     with app.app_context():
         from . import routes
