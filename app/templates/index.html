@@ -5,33 +5,129 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/delaunator@5.0.0/delaunator.min.js"></script>
     <style>
-        .input-group { margin: 20px; }
-        #model-container { border: 1px solid #ccc; margin: 20px; }
-        button { padding: 10px; margin: 5px; }
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        .input-section {
+            background: #f5f5f5;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .input-group {
+            margin: 15px 0;
+        }
+        input[type="file"] {
+            margin: 10px 0;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        #model-container {
+            width: 100%;
+            height: 600px;
+            border: 2px solid #ddd;
+            border-radius: 4px;
+            margin-top: 20px;
+        }
+        .instructions {
+            background: #fff3d4;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 15px 0;
+        }
     </style>
 </head>
 <body>
-    <div class="input-group">
-        <h1>3D Terrain Visualizer</h1>
+    <div class="input-section">
+        <h1>3D Terrain Visualization Tool</h1>
         
-        <div>
-            <h3>Single Point</h3>
+        <div class="input-group">
+            <h2>Single Coordinate Visualization</h2>
             <form onsubmit="generateModel(event)">
                 <input type="number" step="any" id="lat" placeholder="Latitude" required>
                 <input type="number" step="any" id="lon" placeholder="Longitude" required>
-                <button type="submit">Generate Point</button>
+                <button type="submit">Visualize Point</button>
             </form>
         </div>
 
-        <div>
-            <h3>Dataset Upload</h3>
+        <div class="input-group">
+            <h2>Dataset Visualization</h2>
+            <div class="instructions">
+                <strong>CSV Format Requirements:</strong>
+                <ul>
+                    <li>File must be in CSV format</li>
+                    <li>Required columns: <code>lat</code>, <code>lon</code></li>
+                    <li>Maximum 1000 points per file</li>
+                </ul>
+            </div>
+            
             <input type="file" id="dataset" accept=".csv">
-            <button onclick="processDataset()">Visualize Terrain</button>
-            <p>CSV format: lat,lon columns</p>
+            <button onclick="processDataset()">Upload and Visualize Dataset</button>
+            
+            <div id="upload-status" style="margin-top: 10px;"></div>
         </div>
     </div>
 
     <div id="model-container"></div>
+
     <script src="{{ url_for('static', filename='js/three_app.js') }}"></script>
+    <script>
+        function updateStatus(message, isError = false) {
+            const statusDiv = document.getElementById('upload-status');
+            statusDiv.style.color = isError ? 'red' : 'green';
+            statusDiv.textContent = message;
+        }
+
+        async function processDataset() {
+            const fileInput = document.getElementById('dataset');
+            if (!fileInput.files.length) {
+                updateStatus('Please select a file first!', true);
+                return;
+            }
+
+            const file = fileInput.files[0];
+            updateStatus('Processing dataset...');
+
+            try {
+                const formData = new FormData();
+                formData.append('file', file);
+
+                const response = await fetch('/api/dataset', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Upload failed');
+                }
+
+                const data = await response.json();
+                updateStatus(`Successfully processed ${data.features.length} points!`);
+                
+                if(!scene) initThree();
+                if(terrainMesh) scene.remove(terrainMesh);
+                
+                terrainMesh = createTerrainMesh(data.features);
+                scene.add(terrainMesh);
+                fitCameraToObject(terrainMesh);
+                renderer.render(scene, camera);
+
+            } catch (error) {
+                console.error('Error:', error);
+                updateStatus(`Error: ${error.message}`, true);
+            }
+        }
+    </script>
 </body>
 </html>
