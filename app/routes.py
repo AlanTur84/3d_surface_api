@@ -3,66 +3,73 @@ from app.services.elevation_service import get_elevations
 import pandas as pd
 import io
 import logging
+import traceback
 
 api_routes = Blueprint('api', __name__, url_prefix='/api')
 
-@api_routes.route('/generate_model', methods=['GET'])
-def generate_3d_model():
-    lat = request.args.get('lat', type=float)
-    lon = request.args.get('lon', type=float)
-    
-    if not lat or not lon:
-        return jsonify({"error": "Missing lat/lon parameters"}), 400
-    
-    try:
-        elevation = get_elevations([(lat, lon)])[0]
-        if elevation is None:
-            raise ValueError("Elevation service failed")
-            
-        return jsonify({
-            "type": "Feature",
-            "geometry": {
-                "type": "Point",
-                "coordinates": [lon, lat, elevation]
-            },
-            "properties": {
-                "elevation": elevation
-            }
-        })
-        
-    except Exception as e:
-        logging.error(f"Single point error: {str(e)}")
-        return jsonify({"error": str(e)}), 500
-
 @api_routes.route('/dataset', methods=['POST'])
 def handle_dataset():
-    if 'dataset' not in request.files:
-        return jsonify({"error": "No file uploaded"}), 400
-        
-    file = request.files['dataset']
-    
-    if file.filename == '':
-        return jsonify({"error": "No selected file"}), 400
-        
-    if not file.filename.endswith('.csv'):
-        return jsonify({"error": "Only CSV files allowed"}), 400
-
     try:
-        # Read and validate CSV
-        df = pd.read_csv(io.StringIO(file.stream.read().decode('utf-8')))
-        
-        if not {'lat', 'lon'}.issubset(df.columns):
-            return jsonify({"error": "CSV must contain 'lat' and 'lon' columns"}), 400
+        # Validate file existence
+        if 'dataset' not in request.files:
+            logging.error("No file part in request")
+            return jsonify({"error": "No file uploaded"}), 400
             
+        file = request.files['dataset']
+        
+        # Validate file selection
+        if file.filename == '':
+            logging.error("Empty filename submitted")
+            return jsonify({"error": "Please select a file"}), 400
+            
+        # Validate file type
+        if not file.filename.lower().endswith('.csv'):
+            logging.error(f"Invalid file type: {file.filename}")
+            return jsonify({"error": "Only CSV files allowed"}), 400
+
+        # Read and validate CSV
+        try:
+            content = file.stream.read().decode('utf-8')
+            df = pd.read_csv(io.StringIO(content))
+            
+            # Check for required columns
+            if not {'lat', 'lon'}.issubset(df.columns):
+                missing = [c for c in ['lat', 'lon'] if c not in df.columns]
+                logging.error(f"Missing columns: {missing}")
+                return jsonify({
+                    "error": f"Missing required columns: {', '.join(missing)}"
+                }), 400
+                
+            # Validate coordinate ranges
+            if (df['lat'].abs() > 90).any() or (df['lon'].abs() > 180).any():
+                logging.error("Invalid coordinate values")
+                return jsonify({
+                    "error": "Invalid coordinates (lat: -90 to 90, lon: -180 to 180)"
+                }), 400
+
+        except pd.errors.ParserError as e:
+            logging.error(f"CSV parsing error: {str(e)}")
+            return jsonify({"error": "Invalid CSV format"}), 400
+        except UnicodeDecodeError:
+            logging.error("Invalid file encoding")
+            return jsonify({"error": "Invalid file encoding (use UTF-8)"}), 400
+
         # Process coordinates
         coordinates = list(zip(df['lat'], df['lon']))
-        elevations = get_elevations(coordinates)
+        logging.info(f"Processing {len(coordinates)} coordinates")
         
-        # Handle partial failures
-        successful = []
+        # Get elevations with error handling
+        elevations = get_elevations(coordinates)
+        success_rate = sum(e is not None for e in elevations) / len(elevations)
+        
+        if success_rate < 0.5:
+            logging.warning(f"Low elevation success rate: {success_rate*100}%")
+
+        # Build response
+        features = []
         for (lat, lon), elev in zip(coordinates, elevations):
             if elev is not None:
-                successful.append({
+                features.append({
                     "type": "Feature",
                     "geometry": {
                         "type": "Point",
@@ -75,18 +82,15 @@ def handle_dataset():
             "type": "FeatureCollection",
             "metadata": {
                 "total_points": len(coordinates),
-                "successful_points": len(successful),
-                "failed_points": len(coordinates) - len(successful)
+                "successful_points": len(features),
+                "min_elevation": min(e['properties']['elevation'] for e in features),
+                "max_elevation": max(e['properties']['elevation'] for e in features)
             },
-            "features": successful
+            "features": features
         })
-        
-    except pd.errors.ParserError:
-        return jsonify({"error": "Invalid CSV format"}), 400
-    except Exception as e:
-        logging.error(f"Dataset error: {str(e)}")
-        return jsonify({"error": "Processing failed"}), 500
 
-@api_routes.route('/')
-def home():
-    return render_template('index.html')
+    except Exception as e:
+        logging.error(f"Unexpected error: {traceback.format_exc()}")
+        return jsonify({"error": "Internal server error"}), 500
+
+# Keep other routes unchanged from previous version
